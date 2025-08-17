@@ -15,7 +15,7 @@ const defaultConfig = {
     "haine",
     "dégoût",
     "famille",
-    "famille conjoint",
+    "famille de proche",
     "connaît pas"
   ],
   colors: {
@@ -29,7 +29,7 @@ const defaultConfig = {
     "haine": "#FF0000",
     "dégoût": "#A80000",
     "famille": "#00FFD0",
-    "famille conjoint": "#00FFF0",
+    "famille de proche": "#00FFF0",
     "connaît pas": "#C0C0C0"
   },
   // vide par défaut: pas de fusion de synonymes tant qu'un fichier externe ne fournit pas relationGroups
@@ -152,7 +152,8 @@ function parseCSV(csvText, cfg) {
 export default function App() {
   const [network, setNetwork] = useState(null);
   const [graph, setGraph] = useState({ nodes: [], edgesMerged: [], edgesRaw: [], edges: [] });
-  const [filterPerson, setFilterPerson] = useState([]);
+  // Person filters: { [personId]: { active: boolean, mode: 'from' | 'to' | 'both' } }
+  const [personFilters, setPersonFilters] = useState({});
   const [filterRelation, setFilterRelation] = useState([]);
   const [useMerged, setUseMerged] = useState(true); // true = catégories fusionnées
   const [error, setError] = useState("");
@@ -243,20 +244,25 @@ export default function App() {
 
   // Applique le filtre et le layout à chaque changement de filtre ou de graphe
   useEffect(() => {
-    let nodes = graph.nodes;
+  // Toujour afficher tous les nœuds (cercle complet) : seuls les edges sont filtrés
+  let nodes = graph.nodes;
     const baseEdges = useMerged ? graph.edgesMerged : graph.edgesRaw;
     let edges = baseEdges;
-    // Filtre personnes : garder uniquement les arêtes dont l'origine (from) est sélectionnée
-    if (filterPerson.length > 0) {
-      edges = edges.filter(e => filterPerson.includes(e.from));
-      const allowedNodeIds = new Set();
-      edges.forEach(e => { allowedNodeIds.add(e.from); allowedNodeIds.add(e.to); });
-      nodes = nodes.filter(n => allowedNodeIds.has(n.id));
+    // Filtre personnes avancé : pour chaque personne active, inclut les arêtes selon le mode choisi
+    const activePersonEntries = Object.entries(personFilters).filter(([, v]) => v && v.active);
+    if (activePersonEntries.length > 0) {
+      edges = edges.filter(e => {
+        for (const [pid, cfg] of activePersonEntries) {
+          if (cfg.mode === 'from' && e.from === pid) return true;
+          if (cfg.mode === 'to' && e.to === pid) return true;
+          if (cfg.mode === 'both' && (e.from === pid || e.to === pid)) return true;
+        }
+        return false;
+      });
     }
-    // Filtre multiple relations (ne filtre que les arêtes, pas les nœuds)
+    // Filtre multiple relations (ne filtre que les arêtes, pas les nœuds supplémentaires déjà retenus)
     if (filterRelation.length > 0) {
       edges = edges.filter(e => filterRelation.includes(e.label));
-      // nodes restent inchangés
     }
     if (network) {
       const nodeCount = nodes.length;
@@ -268,7 +274,22 @@ export default function App() {
       });
       network.setData({ nodes, edges });
     }
-  }, [filterPerson, filterRelation, graph, network, useMerged, config]);
+  }, [personFilters, filterRelation, graph, network, useMerged, config]);
+
+  // Synchronise le dictionnaire des filtres lorsque la liste des nœuds change (ajoute sans écraser, supprime les obsolètes)
+  useEffect(() => {
+    setPersonFilters(prev => {
+      const next = { ...prev };
+      const currentIds = new Set(graph.nodes.map(n => n.id));
+      // Remove missing
+      Object.keys(next).forEach(id => { if (!currentIds.has(id)) delete next[id]; });
+      // Add new
+      graph.nodes.forEach(n => {
+        if (!next[n.id]) next[n.id] = { active: false, mode: 'from' };
+      });
+      return next;
+    });
+  }, [graph.nodes]);
 
   // Export PNG haute résolution
   function exportPNG() {
@@ -417,14 +438,34 @@ export default function App() {
           {error && <div style={{ color: 'red' }}>{error}</div>}
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <label style={{ marginBottom: 8, fontWeight: 'bold' }}>Filtrer par personne :</label>
-            <select multiple value={filterPerson} onChange={e => {
-              const opts = Array.from(e.target.selectedOptions).map(o => o.value);
-              setFilterPerson(opts);
-            }} style={{ minHeight: 180, fontSize: 14, padding: 8, border: '1px solid #ccc', borderRadius: 6, background: '#fff', color: '#222' }}>
-              {[...graph.nodes].sort((a, b) => a.label.localeCompare(b.label)).map(n => (
-                <option key={n.id} value={n.id}>{n.label}</option>
-              ))}
-            </select>
+            <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid #ccc', borderRadius: 6, padding: 6, background: '#fff', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {[...graph.nodes]
+                .sort((a, b) => a.label.localeCompare(b.label))
+                .map(n => {
+                  const cfg = personFilters[n.id] || { active: false, mode: 'from' };
+                  return (
+                    <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                      <input
+                        type="checkbox"
+                        checked={cfg.active}
+                        onChange={() => setPersonFilters(p => ({ ...p, [n.id]: { ...cfg, active: !cfg.active } }))}
+                      />
+                      <span style={{ flex: 1 }}>{n.label}</span>
+                      <select
+                        disabled={!cfg.active}
+                        value={cfg.mode}
+                        onChange={e => setPersonFilters(p => ({ ...p, [n.id]: { ...cfg, mode: e.target.value } }))}
+                        style={{ fontSize: 12, padding: '2px 4px' }}
+                      >
+                        <option value="from">Source</option>
+                        <option value="to">Cible</option>
+                        <option value="both">Source ou cible</option>
+                      </select>
+                    </div>
+                  );
+                })}
+            </div>
+            <small style={{ color: '#555', marginTop: 4 }}>Cochez une personne puis choisissez si ses relations sont celles où elle est source, cible ou les deux.</small>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <label style={{ marginBottom: 8, fontWeight: 'bold' }}>Filtrer par relation :</label>
