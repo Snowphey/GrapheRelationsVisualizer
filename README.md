@@ -2,6 +2,10 @@
 
 Application React + Vite pour visualiser des relations déclarées dans un fichier CSV (export de formulaire). Le graphe affiche des nœuds (personnes) et des arêtes orientées avec une couleur / étiquette correspondant à la relation.
 
+<p align="center" width="100%">
+    <img src="https://github.com/Snowphey/GrapheRelationsVisualizer/blob/8e84933dbb5cd185c877bb3aefa361a595634a01/public/logo.png" alt="grapherelationsvisualizer_logo"/ width=200>
+</p>
+
 ## Fonctionnalités
 * Import CSV (input fichier)
 * Normalisation des relations (catégories fusionnées) + mode brut (libellés originaux)
